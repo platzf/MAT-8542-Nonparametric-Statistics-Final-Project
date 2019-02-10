@@ -1,0 +1,305 @@
+---
+title: "Final Project Code"
+author: "Faith Platz"
+date: "20 December 2018"
+output: pdf_document
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(readr)
+library(stringr)
+library(BSDA)
+library(clinfun)
+library(jmuOutlier) 
+library(gmodels)
+library(testforDEP)
+```
+
+```{r}
+setwd("~/Documents/MAT 8452 - Nonparametric Statistics/Final Project")
+fly <- read_csv("flying-etiquette.csv")
+
+# shorten variable names
+names(fly) <- c("id",
+                "travel_freq",
+                "recline_freq",
+                "height_str",
+                "kids_yn",
+                "Use2Armrests",
+                "MiddleArmrest",
+                "window_shade",
+                "rude_move_to_unsold",
+                "rude_speak_stranger",
+                "non_aisle_get_up6",
+                "recline_obligation_behind",
+                "rude_recline",
+                "eliminate_recline",
+                "rude_switch_friends",
+                "rude_switch_family",
+                "rude_wake_bathroom",
+                "rude_wake_walk",
+                "rude_baby",
+                "rude_unruly_children",
+                "use_electronics_violate",
+                "smoked_bathroom",
+                "gender",
+                "age",
+                "HH_income",
+                "education",
+                "region")
+```
+
+```{r}
+# data manupulations
+fly_ett <- fly %>%
+  mutate(gen = ifelse(age == "18-29", "Millennial",
+               ifelse (age == "30-44", "Gen X",
+               ifelse(age == "45-60" | age == "> 60", "Baby Boomer or Older", NA))),
+         height = if_else(height_str == "6'6\" and above", "6'6\"",
+                  if_else(height_str == "Under 5 ft.", "4'11\"",
+                          height_str)),
+         get_up6 = ifelse(non_aisle_get_up6 == "It is not okay to get up during flight", 0,
+                   ifelse(non_aisle_get_up6 == "Once", 1,
+                   ifelse(non_aisle_get_up6 == "Twice", 2,
+                   ifelse(non_aisle_get_up6 == "Three times", 3,
+                   ifelse(non_aisle_get_up6 == "Four times", 4,
+                   ifelse(non_aisle_get_up6 == "More than five times times", 5, NA)))))),
+         HH_income = ifelse(HH_income == "$0 - $24,999", "1: $0 - $24,999",
+                     ifelse(HH_income == "$25,000 - $49,999", "2: $25,000 - $49,999",
+                     ifelse(HH_income == "$50,000 - $99,999", "3: $50,000 - $99,999",
+                     ifelse(HH_income == "$100,000 - $149,999", "4: $100,000 - $149,999",
+                     ifelse(HH_income == "150000", "5: $150,000+", NA))))),
+         education = ifelse(education == "Less than high school degree", "1: Less than high school degree",
+                     ifelse(education == "High school degree", "2: High school degree",
+                     ifelse(education == "Some college or Associate degree", "3: Some college or Associate degree",
+                     ifelse(education == "Bachelor degree", "4: Bachelor degree",
+                     ifelse(education == "Graduate degree", "5: Graduate degree", NA))))),
+         travel_freq = ifelse(travel_freq == "Never", "1: Never",
+                       ifelse(travel_freq == "Once a year or less", "2: Once a year or less",
+                       ifelse(travel_freq == "Once a month or less", "3: Once a month or less",
+                       ifelse(travel_freq == "A few times per month", "4: A few times per month",
+                       ifelse(travel_freq == "A few times per week", "5: A few times per week",
+                       ifelse(travel_freq == "Every day", "6: Every day", NA)))))),
+         recline_freq = ifelse(recline_freq == "Never", "1: Never",
+                        ifelse(recline_freq == "Once in a while", "2: Once in a while",
+                        ifelse(recline_freq == "About half the time", "3: About half the time",
+                        ifelse(recline_freq == "Usually", "4: Usually",
+                        ifelse(recline_freq == "Always", "5: Always", NA))))))
+fly2 <- fly_ett %>%
+  separate(height, c("feet", "inches"), sep = "'") %>%
+  mutate(inches = as.numeric(str_sub(inches,1,-2)),
+         height_num = (as.numeric(feet)*12) + inches)
+
+# make all categorical variables factor variables
+fly3 <- fly2 %>% 
+  mutate_if(is.character,as.factor)
+
+# Create vectors of male and female heights
+females <- fly3 %>%
+  filter(gender == "Female")
+males <- fly3 %>%
+  filter(gender == "Male")
+```
+
+
+```{r}
+# frequency distributions for height and number of acceptable times to get up
+ggplot(fly3, aes(get_up6)) +
+  geom_histogram(binwidth = 1) +
+  labs(x = "Acceptable Times to Get Up", y = "Frequency",
+       title = "On a 6 hour flight from NYC to LA, how many times is it acceptable\nto get up if you're not in an aisle seat?")
+
+ggplot(fly3, aes(height_num)) +
+  geom_histogram(binwidth = 1) +
+  labs(x = "Height in Inches", y = "Frequency",
+       title = "How tall are you?")
+```
+
+```{r}
+# check assumptions for wilcoxon rank sum
+fly3 %>%
+  filter(!is.na(gender)) %>%
+  ggplot(aes(height_num, color = gender)) +
+  geom_density() +
+  labs(x = "Height in inches", y = "Density",
+       title = "Distribution of Height by Gender")
+```
+
+
+```{r}
+# Sign Test for the 50th percentile of heights of Americans
+# link used for finding percentiles: 
+# https://www.cdc.gov/nchs/data/series/sr_03/sr03_039.pdf
+# Females - 50th percentile nationally is 63.7in (page 14)
+SIGN.test(females$height_num, md = 63.7)
+t.test(females$height_num, mu = 63.7)
+
+#Males - 50th percentile nationally is 69.1 in
+SIGN.test(males$height_num, md = 69.1)
+t.test(males$height_num, mu = 69.1)
+
+# Wilcoxon Rank Sum Test - Height
+
+wilcox.test(males$height_num, females$height_num, conf.int = T)
+t.test(males$height_num, females$height_num)
+
+# recline freq
+wilcox.test(filter(fly3, recline_freq == "1: Never")$height_num,
+            filter(fly3, recline_freq == "5: Always")$height_num, conf.int = T)
+t.test(filter(fly3, recline_freq == "1: Never")$height_num,
+            filter(fly3, recline_freq == "5: Always")$height_num)
+
+# recline obligation
+wilcox.test(filter(fly3, recline_obligation_behind == "Yes, they should not recline their chair if the person behind them asks them not to")$height_num,
+            filter(fly3, recline_obligation_behind == "No, the person on the flight has no obligation to the person behind them")$height_num, conf.int = T)
+t.test(filter(fly3, recline_obligation_behind == "Yes, they should not recline their chair if the person behind them asks them not to")$height_num,
+            filter(fly3, recline_obligation_behind == "No, the person on the flight has no obligation to the person behind them")$height_num)
+
+# rude recline
+wilcox.test(filter(fly3, rude_recline == "Yes, somewhat rude" | rude_recline == "Yes, very rude")$height_num,
+            filter(fly3, rude_recline == "No, not rude at all")$height_num, conf.int = T)
+t.test(filter(fly3, rude_recline == "Yes, somewhat rude" | rude_recline == "Yes, very rude")$height_num,
+            filter(fly3, rude_recline == "No, not rude at all")$height_num)
+
+# eliminate recline
+wilcox.test(filter(fly3, eliminate_recline == "Yes")$height_num,
+            filter(fly3, eliminate_recline == "No")$height_num, conf.int = T)
+t.test(filter(fly3, eliminate_recline == "Yes")$height_num,
+            filter(fly3, eliminate_recline == "No")$height_num)
+
+
+# take a look at the shapes of these distributions
+fly3 %>%
+  mutate(recline_frequency = ifelse(recline_freq == "1: Never", "Never",
+              ifelse(recline_freq == "5: Always", "Always", NA))) %>%
+  filter(!is.na(recline_frequency)) %>%
+  ggplot(aes(height_num, color = recline_frequency)) +
+  geom_density() +
+  labs(x = "Height in inches", y = "Density",
+       title = "Distribution of Height by Recline Frequency")
+
+fly3 %>%
+  filter(!is.na(recline_obligation_behind)) %>%
+  ggplot(aes(height_num, color = recline_obligation_behind)) +
+  geom_density() +
+  labs(x = "Height in inches", y = "Density",
+       title = "Distribution of Height by Opinion on Reclining Obligations") +
+  theme(legend.position="bottom", legend.direction="vertical")
+
+fly3 %>%
+  mutate(rude_recline = ifelse(rude_recline == "Yes, somewhat rude" | rude_recline == "Yes, very rude",
+                               "Yes",
+              ifelse(rude_recline == "No, not rude at all", "No", NA))) %>%
+  filter(!is.na(rude_recline)) %>%
+  ggplot(aes(height_num, color = rude_recline)) +
+  geom_density() +
+  labs(x = "Height in inches", y = "Density",
+       title = "Distribution of Height by Rudeness of Reclining Seats")
+
+fly3 %>%
+  filter(!is.na(eliminate_recline)) %>%
+  ggplot(aes(height_num, color = eliminate_recline)) +
+  geom_density() +
+  labs(x = "Height in inches", y = "Density",
+       title = "Distribution of Height by Support of Eliminating Reclining Seats")
+```
+
+```{r}
+# 3+ sample tests - Get Up 6
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_speak_stranger), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_speak_stranger, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_wake_bathroom), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_wake_bathroom, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_wake_walk), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_wake_walk, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_baby), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_baby, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_unruly_children), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_unruly_children, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_recline), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_recline, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_move_to_unsold), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_move_to_unsold, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_switch_friends), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_switch_friends, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$rude_switch_family), alternative = "decreasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ rude_switch_family, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$recline_freq), alternative = "increasing", nperm = 2000) # SIGNIFICANT
+summary(aov(get_up6 ~ recline_freq, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$travel_freq), alternative = "increasing", nperm = 2000)
+summary(aov(get_up6 ~ travel_freq, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$education), alternative = "increasing", nperm = 2000)
+summary(aov(get_up6 ~ education, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$HH_income), alternative = "increasing", nperm = 2000)
+summary(aov(get_up6 ~ HH_income, data=fly3))
+
+jonckheere.test(fly3$get_up6,as.ordered(fly3$gen), alternative = "increasing", nperm = 2000)
+summary(aov(get_up6 ~ gen, data=fly3))
+```
+
+```{r}
+# chi-square analysis
+CrossTable(fly3$gen, fly3$rude_speak_stranger, chisq = T, format = "SPSS")
+chisq.test(fly3$gen, fly3$rude_speak_stranger, simulate.p.value=T)
+
+CrossTable(fly3$window_shade, fly3$gen, format = "SPSS", chisq = T)
+chisq.test(fly3$gen, fly3$window_shade, simulate.p.value=T)
+
+CrossTable(fly3$MiddleArmrest, fly3$gen, chisq = T, format = "SPSS")
+chisq.test(fly3$gen, fly3$MiddleArmrest, simulate.p.value=T)
+
+CrossTable(fly3$Use2Armrests, fly3$gen, chisq = T, format = "SPSS")
+chisq.test(fly3$gen, fly3$Use2Armrests, simulate.p.value=T)
+
+CrossTable(fly3$use_electronics_violate, fly3$gen, chisq = T, format = "SPSS")
+chisq.test(fly3$use_electronics_violate, fly3$smoked_bathroom, simulate.p.value=T)
+
+CrossTable(fly3$smoked_bathroom, fly3$gen, chisq = T, format = "SPSS")
+chisq.test(fly3$gen, fly3$smoked_bathroom, simulate.p.value=T)
+```
+
+
+```{r}
+# mcnemars test for violation rates
+mcnemar.test(fly3$smoked_bathroom, fly3$use_electronics_violate)
+CrossTable(fly3$smoked_bathroom, fly3$use_electronics_violate, mcnemar = T, format = "SPSS")
+table(fly3$smoked_bathroom, fly3$use_electronics_violate)
+```
+
+
+
+```{r}
+# assocation
+ggplot(fly3, aes(height_num, get_up6)) +
+  geom_jitter() +
+  geom_smooth(method = "lm") +
+  labs(x = "Height in Inches", y = "Acceptable Times to Get Up",
+       title = "Acceptable Times to Get up vs. Height")
+
+# Pearson's Test
+perm.cor.test(filter(fly3, !is.na(height_num) & !is.na(get_up6))$height_num,
+              filter(fly3, !is.na(height_num) & !is.na(get_up6))$get_up6,
+              method='pearson') 
+# Spearman's Test
+perm.cor.test(filter(fly3, !is.na(height_num) & !is.na(get_up6))$height_num,
+              filter(fly3, !is.na(height_num) & !is.na(get_up6))$get_up6,
+              method='spearman') 
+# Hoeffding's Test
+testforDEP(filter(fly3, !is.na(height_num) & !is.na(get_up6))$height_num,
+              filter(fly3, !is.na(height_num) & !is.na(get_up6))$get_up6,test='HOEFFD')
+```
+
+
